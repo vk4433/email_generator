@@ -1,0 +1,14 @@
+ipykernel
+sqlalchemy
+fastapi
+uvicorn
+pydantic
+supabase <=2.31.0
+alembic <= 1.19.1
+psycopg2-binary
+google-genai
+langchain
+langgraph
+pymupdf
+python-dotenv
+streamlit
