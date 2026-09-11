@@ -1,9 +1,6 @@
-import json
-import re
-
 import streamlit as st
 
-from base.ai_email import generate_email
+from base.ai_email import generate_and_send_email
 from base.constants import STATUS_COLORS, STATUS_LABELS
 from base.db import (
     create_application,
@@ -22,7 +19,6 @@ from base.db import (
     verify_user_password,
 )
 from base.resume_text import ResumeText
-from base.send_email import send_email
 
 st.set_page_config(page_title="Job Application Email Generator", page_icon="📧", layout="wide")
 
@@ -60,8 +56,8 @@ div[data-testid="stForm"] {
 
 if "user" not in st.session_state:
     st.session_state.user = None
-if "generated" not in st.session_state:
-    st.session_state.generated = None
+if "last_sent" not in st.session_state:
+    st.session_state.last_sent = None
 
 
 def show_auth():
@@ -124,9 +120,10 @@ def show_compose(user):
     st.header("Compose")
 
     with st.container(border=True):
-        st.subheader("1. Paste the job description")
+        st.subheader("Paste the job description")
         job_description = st.text_area("Job description", height=220, label_visibility="collapsed")
-        generate_clicked = st.button("✨ Generate Email", type="primary")
+        st.caption("The AI drafts the application email and sends it itself — there's no review step before it goes out.")
+        generate_clicked = st.button("✨ Generate & send email", type="primary")
 
     if generate_clicked:
         if not job_description.strip():
@@ -134,69 +131,38 @@ def show_compose(user):
         elif not user.get("resume_pdf"):
             st.error("No resume on file for this account.")
         else:
-            with st.spinner("Generating email..."):
+            with st.spinner("Generating and sending email..."):
                 resume_bytes = download_resume(user["resume_pdf"])
                 resume_text = ResumeText.extract_text(resume_bytes)
-                raw_response = generate_email(job_description, resume_text)
-                cleaned = re.sub(r"^```(?:json)?|```$", "", raw_response.strip(), flags=re.MULTILINE).strip()
-                try:
-                    email_data = json.loads(cleaned)
-                except json.JSONDecodeError:
-                    email_data = None
-                    st.error("Failed to parse the generated email. Please try again.")
+                gmail_password = get_gmail_password(user["user_id"])
+                sent = generate_and_send_email(
+                    job_description,
+                    resume_text,
+                    my_email=user["email"],
+                    my_password=gmail_password,
+                    resume_bytes=resume_bytes,
+                )
 
-            if email_data:
-                st.session_state.generated = {
-                    "resume_bytes": resume_bytes,
-                    "recruiter_emails": email_data.get("recruiter_emails", []),
-                    "company_name": email_data.get("company_name", ""),
-                    "role": email_data.get("role", ""),
-                    "subject": email_data.get("subject", ""),
-                    "body": email_data.get("body", ""),
-                }
+            if not sent:
+                st.error("The model didn't send an email. Please try again.")
+            else:
+                create_application(
+                    user["user_id"],
+                    sent["company_name"],
+                    sent["role"],
+                    recruiter_email=", ".join(sent["recipient_emails"]),
+                )
+                st.session_state.last_sent = sent
+                st.toast(f"Email sent to {', '.join(sent['recipient_emails'])}!", icon="✅")
 
-    if st.session_state.generated:
-        data = st.session_state.generated
+    if st.session_state.last_sent:
+        sent = st.session_state.last_sent
         with st.container(border=True):
-            st.subheader("2. Review & send")
-            col1, col2 = st.columns(2)
-            with col1:
-                company_name = st.text_input("Company name", value=data.get("company_name", ""))
-            with col2:
-                role = st.text_input("Role", value=data.get("role", ""))
-
-            recipient = st.text_input(
-                "Recipient email(s), comma-separated",
-                value=", ".join(data["recruiter_emails"]),
-            )
-            subject = st.text_input("Subject", value=data["subject"])
-            body = st.text_area("Body", value=data["body"], height=280)
-
-            if st.button("🚀 Apply — send email", type="primary"):
-                recipients = [r.strip() for r in recipient.split(",") if r.strip()]
-                if not recipients:
-                    st.error("Enter at least one recipient email.")
-                elif not (company_name and role):
-                    st.error("Enter the company name and role to log this application.")
-                else:
-                    try:
-                        with st.spinner("Sending email..."):
-                            gmail_password = get_gmail_password(user["user_id"])
-                            for r in recipients:
-                                send_email(
-                                    my_email=user["email"],
-                                    my_password=gmail_password,
-                                    recipient_email=r,
-                                    subject=subject,
-                                    body=body,
-                                    attachments=[("resume.pdf", data["resume_bytes"])],
-                                )
-                            create_application(user["user_id"], company_name, role, recruiter_email=", ".join(recipients))
-                        st.session_state.generated = None
-                        st.toast(f"Email sent to {', '.join(recipients)}!", icon="✅")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to send email: {e}")
+            st.subheader("Last sent")
+            st.caption(f"{sent['company_name']} — {sent['role']}")
+            st.write(f"**To:** {', '.join(sent['recipient_emails'])}")
+            st.write(f"**Subject:** {sent['subject']}")
+            st.text(sent["body"])
 
 
 def show_details_tab(user):
