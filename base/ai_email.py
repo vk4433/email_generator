@@ -1,3 +1,5 @@
+import re
+
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -11,10 +13,14 @@ load_dotenv()
 def get_current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+def resume_attachment_filename(candidate_name):
+    safe_name = re.sub(r"[^A-Za-z0-9 _-]", "", candidate_name or "").strip()
+    return f"{safe_name} Resume.pdf" if safe_name else "resume.pdf"
+
 client = genai.Client()
 
 
-def generate_and_send_email(job_description, resume_text, my_email, my_password, resume_bytes=None):
+def generate_and_send_email(job_description, resume_text, my_email, my_password, candidate_name=None, resume_bytes=None):
     """Drafts a personalized job application email and lets the model send it itself.
 
     Returns a dict describing what was sent (company_name, role, recipient_emails,
@@ -36,7 +42,7 @@ def generate_and_send_email(job_description, resume_text, my_email, my_password,
             subject: Final email subject line.
             body: Final plain-text email body.
         """
-        attachments = [("resume.pdf", resume_bytes)] if resume_bytes else None
+        attachments = [(resume_attachment_filename(candidate_name), resume_bytes)] if resume_bytes else None
         for recipient in recipient_emails:
             send_email(
                 my_email=my_email,

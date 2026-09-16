@@ -140,6 +140,7 @@ def show_compose(user):
                     resume_text,
                     my_email=user["email"],
                     my_password=gmail_password,
+                    candidate_name=user["name"],
                     resume_bytes=resume_bytes,
                 )
 
