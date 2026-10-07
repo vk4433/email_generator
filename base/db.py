@@ -145,6 +145,9 @@ def update_user_profile(
     name: str,
     linkedin_url: str | None = None,
     github_url: str | None = None,
+    last_working_day: str | None = None,
+    current_salary: float | None = None,
+    expected_salary: float | None = None,
 ) -> None:
     client = get_client()
     client.rpc(
@@ -154,6 +157,9 @@ def update_user_profile(
             "p_name": name,
             "p_linkedin_url": linkedin_url,
             "p_github_url": github_url,
+            "p_last_working_day": last_working_day,
+            "p_current_salary": current_salary,
+            "p_expected_salary": expected_salary,
         },
     ).execute()
 
@@ -172,3 +178,25 @@ def update_gmail_password(user_id: int, gmail_password: str) -> None:
         "update_gmail_password",
         {"p_user_id": user_id, "p_gmail_password": gmail_password},
     ).execute()
+
+
+def set_api_key(user_id: int, api_key_hash: str) -> None:
+    client = get_client()
+    client.rpc(
+        "set_api_key",
+        {"p_user_id": user_id, "p_api_key_hash": api_key_hash},
+    ).execute()
+
+
+def get_user_id_by_api_key(api_key_hash: str) -> int | None:
+    client = get_client()
+    response = client.rpc(
+        "get_user_id_by_api_key",
+        {"p_api_key_hash": api_key_hash},
+    ).execute()
+    return response.data
+
+
+def clear_api_key(user_id: int) -> None:
+    client = get_client()
+    client.rpc("clear_api_key", {"p_user_id": user_id}).execute()

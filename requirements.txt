@@ -11,4 +11,7 @@ langchain
 langgraph
 pymupdf
 python-dotenv
+langgraph
+langchain-deepseek
+langchain
 streamlit
