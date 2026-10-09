@@ -21,9 +21,7 @@ def get_deepseek_model():
     """Get the DeepSeek model."""
     return ChatDeepSeek(
         api_key=os.getenv("DEEPSEEK_API_KEY"),
-        model_name="deepseek-flash",
-        temperature=0.7,
-        max_tokens=1000,
+        model_name="deepseek-flash"
     )
 
 @tool
@@ -187,7 +185,7 @@ def send_application_email(
 
 def build_prompt(state):
     system_prompt = f"""
-    You help the candidate apply for jobs. Their resume isn't in this chat: call
+    Your expert in job applications, feel like candidate. recuter need to feel like candidate writtene the email. Their resume isn't in this chat: call
     get_resume_text to read it, and only when you need it (e.g. before writing an
     application email), not for ordinary questions.
 
