@@ -10,6 +10,7 @@ from langgraph.types import Command
 from base.agent import root_agent
 from base.constants import STATUS_COLORS, STATUS_LABELS
 from base.db import (
+    EmailAlreadyExistsError,
     clear_api_key,
     create_application,
     create_user,
@@ -30,13 +31,15 @@ from base.db import (
 )
 from base.resume_text import ResumeText
 
-st.set_page_config(page_title="Applyly · AI job application assistant", page_icon="✉️", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="ApplyBuddy · AI job application assistant", page_icon="✉️", layout="centered", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
 #MainMenu, footer, [data-testid="stToolbar"] {visibility: hidden;}
-[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display: none;}
-header[data-testid="stHeader"] {background: transparent; height: 0;}
+header[data-testid="stHeader"] {background: transparent;}
+[data-testid="stSidebar"] {border-right: 1px solid rgba(128, 128, 128, 0.2);}
+[data-testid="stSidebar"] .stButton>button {justify-content: flex-start; text-align: left;}
+[data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] {visibility: visible !important;}
 .block-container {padding-top: 3.5rem; max-width: 880px;}
 h1, h2, h3 {letter-spacing: -0.02em;}
 .stButton>button, .stDownloadButton>button {border-radius: 10px; font-weight: 600;}
@@ -45,7 +48,19 @@ div[data-testid="stForm"] {
     border-radius: 16px;
     padding: 1.4rem 1.6rem 0.8rem;
 }
-div[data-testid="stChatMessage"] {border-radius: 14px;}
+div[data-testid="stChatMessage"] {
+    border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 18px;
+    padding: 0.9rem 1.1rem; margin-bottom: 0.7rem;
+    background: rgba(128, 128, 128, 0.06);
+}
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    background: rgba(99, 102, 241, 0.10); border-color: rgba(99, 102, 241, 0.25);
+}
+div[data-testid="stChatInput"] {border-radius: 18px;}
+.chat-title {font-size: 1.4rem; font-weight: 700; margin-bottom: 0.2rem;}
+.chat-sub {opacity: 0.6; margin-bottom: 1rem;}
+.tips {display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin-top: 1.4rem;}
+.tip {border: 1px solid rgba(128,128,128,0.25); border-radius: 14px; padding: 0.6rem 0.9rem; font-size: 0.85rem; max-width: 200px; opacity: 0.85;}
 .hero {padding: 1.2rem 0 1.6rem;}
 .hero h1 {font-size: 2.4rem; margin-bottom: 0.3rem;}
 .hero p {opacity: 0.7; font-size: 1.05rem; margin: 0;}
@@ -65,6 +80,7 @@ div[data-testid="stChatMessage"] {border-radius: 14px;}
 .user-card .meta {min-width: 0; line-height: 1.25;}
 .user-card .meta span {display: block; opacity: 0.65; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis;}
 .empty-chat {text-align: center; padding: 2.5rem 0 1.2rem;}
+.empty-chat .icon {font-size: 2.6rem;}
 .empty-chat h2 {margin-bottom: 0.3rem;}
 .empty-chat p {opacity: 0.65; margin: 0;}
 .pill {padding: 2px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600;}
@@ -109,17 +125,27 @@ def refresh_user(user_id: int):
 
 def show_auth():
     st.markdown(
-        '<div class="hero"><h1>✉️ Applyly</h1>'
+        """<style>
+        [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display: none;}
+        .auth-hero {text-align: center; padding: 1.5rem 0 1rem;}
+        .auth-hero .logo {font-size: 2.6rem;}
+        .auth-hero h1 {margin: 0.2rem 0 0.3rem; font-size: 2rem;}
+        .auth-hero p {opacity: 0.7; margin: 0;}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+    _, center, _ = st.columns([1, 3, 1])
+    center.markdown(
+        '<div class="auth-hero"><div class="logo">✉️</div><h1>ApplyBuddy</h1>'
         "<p>Paste a job description. Your AI assistant writes a personal email and sends it for you.</p></div>",
         unsafe_allow_html=True,
     )
-
-    login_tab, signup_tab = st.tabs(["Log in", "Create account"])
+    login_tab, signup_tab = center.tabs(["Log in", "Create account"])
 
     with login_tab:
         with st.form("login_form"):
             st.subheader("Welcome back")
-            email = st.text_input("Email", placeholder="you@example.com")
+            email = st.text_input("Email")
             password = st.text_input("Password", type="password", placeholder="Your password")
             submitted = st.form_submit_button("Log in", type="primary", width="stretch")
         if submitted:
@@ -138,10 +164,10 @@ def show_auth():
     with signup_tab:
         with st.form("signup_form", clear_on_submit=True):
             st.subheader("Create your account")
-            name = st.text_input("Full name", placeholder="Vinod Kumar")
+            name = st.text_input("Full name")
             col1, col2 = st.columns(2)
             with col1:
-                email = st.text_input("Email", key="signup_email", placeholder="you@gmail.com")
+                email = st.text_input("Email", key="signup_email")
             with col2:
                 password = st.text_input("Password", type="password", key="signup_password",
                                          placeholder="Choose a password")
@@ -152,9 +178,9 @@ def show_auth():
             st.markdown("[Create a Gmail app password ↗](https://myaccount.google.com/apppasswords)")
             col3, col4 = st.columns(2)
             with col3:
-                linkedin_url = st.text_input("LinkedIn (optional)", placeholder="https://linkedin.com/in/your-name")
+                linkedin_url = st.text_input("LinkedIn (optional)")
             with col4:
-                github_url = st.text_input("GitHub (optional)", placeholder="https://github.com/your-name")
+                github_url = st.text_input("GitHub (optional)")
             resume_file = st.file_uploader("Resume (PDF)", type=["pdf"],
                                            help="Drag and drop your resume here.")
             submitted = st.form_submit_button("Create account", type="primary", width="stretch")
@@ -173,6 +199,8 @@ def show_auth():
                         resume_path = upload_resume(user_id, resume_file.getvalue(), resume_file.name)
                         update_resume_path(user_id, resume_path)
                     st.success("Account created. Switch to the Log in tab to continue.")
+                except EmailAlreadyExistsError:
+                    st.error("An account with this email already exists. Please log in instead.")
                 except Exception as e:
                     st.error(f"Could not create account: {e}")
 
@@ -332,8 +360,12 @@ def show_chat(user):
 
     if not st.session_state.chat_display and not st.session_state.pending_upload:
         st.markdown(
-            '<div class="empty-chat"><h2>Who are we applying to today?</h2>'
-            "<p>Paste a job description and I'll write the email and send it to the recruiter.</p></div>",
+            '<div class="empty-chat"><div class="icon">✉️</div><h2>Who are we applying to today?</h2>'
+            "<p>Paste a job description and I'll write the email and send it to the recruiter.</p>"
+            '<div class="tips">'
+            '<div class="tip">📄 Paste a job description</div>'
+            '<div class="tip">✍️ I write a personal email</div>'
+            '<div class="tip">🚀 I send it from your Gmail</div></div></div>',
             unsafe_allow_html=True,
         )
 
@@ -445,19 +477,17 @@ def show_details_tab(user):
         name = st.text_input("Full name", value=user.get("name", ""), placeholder="Your name")
         col1, col2 = st.columns(2)
         with col1:
-            linkedin_url = st.text_input("LinkedIn", value=user.get("linkedin_url") or "",
-                                         placeholder="https://linkedin.com/in/your-name")
+            linkedin_url = st.text_input("LinkedIn", value=user.get("linkedin_url") or "")
         with col2:
-            github_url = st.text_input("GitHub", value=user.get("github_url") or "",
-                                       placeholder="https://github.com/your-name")
+            github_url = st.text_input("GitHub", value=user.get("github_url") or "")
         st.caption("Job details: the assistant shares these only when a job asks for them.")
         col3, col4, col5 = st.columns(3)
         with col3:
             current_salary = st.number_input("Current salary", value=_to_float(user.get("current_salary")),
-                                             min_value=0.0, step=10000.0, placeholder="e.g. 1200000")
+                                             min_value=0.0, step=10000.0)
         with col4:
             expected_salary = st.number_input("Expected salary", value=_to_float(user.get("expected_salary")),
-                                              min_value=0.0, step=10000.0, placeholder="e.g. 1800000")
+                                              min_value=0.0, step=10000.0)
         with col5:
             last_working_day = st.date_input("Last working day", value=_to_date(user.get("last_working_day")),
                                              format="DD-MM-YYYY")
@@ -555,9 +585,8 @@ user = st.session_state.user
 display_name = user.get("name") or user["email"]
 st.session_state.setdefault("page", "chat")
 
-brand_col, menu_col = st.columns([5, 1], vertical_alignment="center")
-brand_col.markdown('<div class="brand">✉️ Applyly</div>', unsafe_allow_html=True)
-with menu_col.popover("☰", width="stretch"):
+with st.sidebar:
+    st.markdown('<div class="brand">✉️ ApplyBuddy</div>', unsafe_allow_html=True)
     st.markdown(
         f"""
         <div class="user-card">

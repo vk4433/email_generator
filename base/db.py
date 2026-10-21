@@ -1,9 +1,14 @@
 import os
 
 from dotenv import load_dotenv
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 load_dotenv()
+
+
+class EmailAlreadyExistsError(Exception):
+    pass
 
 RESUME_BUCKET = "resumes"
 
@@ -66,18 +71,24 @@ def create_user(
     github_url: str | None = None,
 ) -> int:
     client = get_client()
-    response = client.rpc(
-        "create_user",
-        {
-            "p_name": name,
-            "p_email": email,
-            "p_password": password,
-            "p_gmail_password": gmail_password,
-            "p_resume_pdf": resume_pdf,
-            "p_linkedin_url": linkedin_url,
-            "p_github_url": github_url,
-        },
-    ).execute()
+    try:
+        response = client.rpc(
+            "create_user",
+            {
+                "p_name": name,
+                "p_email": email,
+                "p_password": password,
+                "p_gmail_password": gmail_password,
+                "p_resume_pdf": resume_pdf,
+                "p_linkedin_url": linkedin_url,
+                "p_github_url": github_url,
+            },
+        ).execute()
+    except APIError as e:
+        text = f"{e.code} {e.message}".lower()
+        if e.code == "23505" or "duplicate" in text or "already exists" in text:
+            raise EmailAlreadyExistsError("An account with this email already exists.") from e
+        raise
     return response.data
 
 
