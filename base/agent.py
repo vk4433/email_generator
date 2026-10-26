@@ -204,7 +204,9 @@ def build_prompt(state):
     interest", "passionate", "dynamic", "leverage", "esteemed", "hope this email
     finds you well"), avoid buzzword lists, and don't use dashes or bullet points.
     Don't copy lines from the resume or restate it; pick the one or two things that
-    fit this job best and say them in your own words. Under 150 words.
+    fit this job best and say them in your own words. 
+    if recuter want any detail keep all in order and in structure , not mix in  paragraph .
+    Under 150 words.
 
     WHAT TO SAY
     - Greet the recruiter, say which role you're applying for, and briefly why your
