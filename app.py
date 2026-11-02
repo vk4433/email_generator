@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 
 import streamlit as st
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command
 
 from base.agent import root_agent
@@ -245,8 +245,11 @@ def repair_thread(config):
         root_agent.update_state(config, {"messages": missing}, as_node="tools")
 
 
-def run_agent(user, agent_input):
-    """Runs the agent on this chat's thread. Returns (reply, sent_email, interrupted)."""
+def run_agent(user, agent_input, placeholder=None):
+    """Runs the agent on this chat's thread. Returns (reply, interrupted).
+
+    If a Streamlit placeholder is given, the model's reply is streamed into it token by token.
+    """
     resume_bytes, resume_text = get_resume(user)
     config = {"configurable": {
         "thread_id": st.session_state.thread_id,
@@ -264,7 +267,16 @@ def run_agent(user, agent_input):
     if isinstance(agent_input, str):
         agent_input = {"messages": [{"role": "user", "content": agent_input}]}
 
-    root_agent.invoke(agent_input, config=config)
+    streamed, current_id = "", None
+    for chunk, meta in root_agent.stream(agent_input, config=config, stream_mode="messages"):
+        if placeholder is None or not isinstance(chunk, AIMessageChunk) or meta.get("langgraph_node") != "agent":
+            continue
+        if chunk.id != current_id:  # a new model turn started; drop text from the previous one
+            streamed, current_id = "", chunk.id
+        if isinstance(chunk.content, str) and chunk.content:
+            streamed += chunk.content
+            placeholder.markdown(streamed + "▌")
+
     state = root_agent.get_state(config)
     new_messages = state.values["messages"][len(existing):]
     interrupted = any(task.interrupts for task in state.tasks)
@@ -300,12 +312,13 @@ def handle_prompt(user, prompt):
     with st.chat_message("user"):
         st.markdown(prompt)
     with st.chat_message("assistant"):
+        placeholder = st.empty()
+        placeholder.markdown("_Working on it..._")
         try:
-            with st.spinner("Working on it..."):
-                reply, interrupted = run_agent(user, prompt)
+            reply, interrupted = run_agent(user, prompt, placeholder)
         except Exception as e:
             reply, interrupted = f"Something went wrong: {e}", False
-        st.markdown(reply)
+        placeholder.markdown(reply)
     st.session_state.chat_display.append({"role": "assistant", "content": reply})
     st.session_state.pending_upload = interrupted
     if interrupted:
