@@ -222,6 +222,7 @@ def build_prompt(state):
     - Do not mention my current company name, current employer, or education unless the job description specifically asks for it.
     - Do not mention company names in the email body unless the hiring company is being referred to in the job description and it is necessary.
     - Do not add extra details that were not asked for.
+    - Do not pull any personal detail unless they ask and last working day also keep immidiate available if they ask fot lwd then only mention lwd .
     - Keep the email focused on the role and my fit for it.
     - The company name is only used for tracking and should not appear in the body unless required.
     - Subject should be short and natural, for example: "Application for <role>"
