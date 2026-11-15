@@ -1,0 +1,25 @@
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+baseRadius = "12px"
+buttonRadius = "10px"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#4f46e5"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f6fa"
+textColor = "#1d2030"
+borderColor = "#e3e5ee"
+
+[theme.light.sidebar]
+backgroundColor = "#f7f7fb"
+
+[theme.dark]
+primaryColor = "#6366f1"
+backgroundColor = "#0f1117"
+secondaryBackgroundColor = "#1a1d27"
+textColor = "#e6e7ee"
+borderColor = "#2a2e3b"
+
+[theme.dark.sidebar]
+backgroundColor = "#13151d"

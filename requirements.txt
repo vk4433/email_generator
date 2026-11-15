@@ -14,4 +14,4 @@ python-dotenv
 langgraph
 langchain-deepseek
 langchain
-streamlit
+streamlit==1.62.0
