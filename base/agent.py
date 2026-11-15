@@ -229,7 +229,6 @@ Default writing guidelines (my preferences can override these):
   stack or describe projects in detail.
 - Mention salary, LinkedIn  GitHub or last working day only if the job post or recruiter asks for them.
 - Email format:
-  subject : my name (applaying role ) if user dont mention any subject
   Hi <recruiter's first name>, (or just "Hi," if unknown)
 
   <the role I'm applying for>
@@ -238,7 +237,8 @@ Default writing guidelines (my preferences can override these):
   Best regards,
   {name}
   <my phone, if it's in my resume>
-- Subject: "Application for <role>".
+- Subject: "{name} (<role I'm applying for>)", unless I or my preferences give a
+  different subject. The subject goes only in the subject field, never in the body.
 
 When I paste a job description:
 1. Call get_application_details. Follow my preferences on top of the guidelines above
