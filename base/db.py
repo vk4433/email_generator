@@ -36,12 +36,6 @@ def upload_resume(user_id: int, file_bytes: bytes, filename: str) -> str:
     return path
 
 
-def get_resume_signed_url(path: str, expires_in: int = 3600) -> str:
-    client = get_client()
-    result = client.storage.from_(RESUME_BUCKET).create_signed_url(path, expires_in)
-    return result["signedURL"]
-
-
 def download_resume(path: str) -> bytes:
     client = get_client()
     return client.storage.from_(RESUME_BUCKET).download(path)
@@ -53,6 +47,14 @@ def update_resume_path(user_id: int, resume_pdf: str) -> None:
         "update_resume_path",
         {"p_user_id": user_id, "p_resume_pdf": resume_pdf},
     ).execute()
+    bucket = client.storage.from_(RESUME_BUCKET)
+    old = [
+        f"{user_id}/{f['name']}"
+        for f in bucket.list(str(user_id), {"limit": 1000})
+        if f.get("name") and f"{user_id}/{f['name']}" != resume_pdf
+    ]
+    if old:
+        bucket.remove(old)
 
 
 def get_user_profile(user_id: int) -> dict | None:
@@ -172,6 +174,14 @@ def update_user_profile(
             "p_current_salary": current_salary,
             "p_expected_salary": expected_salary,
         },
+    ).execute()
+
+
+def update_user_prompt(user_id: int, user_prompt: str | None) -> None:
+    client = get_client()
+    client.rpc(
+        "update_user_prompt",
+        {"p_user_id": user_id, "p_user_prompt": user_prompt},
     ).execute()
 
 

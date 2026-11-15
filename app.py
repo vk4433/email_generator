@@ -1,4 +1,5 @@
 import hashlib
+import html
 import secrets
 import uuid
 from datetime import date, datetime
@@ -7,8 +8,8 @@ import streamlit as st
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command
 
-from base.agent import root_agent
-from base.constants import STATUS_COLORS, STATUS_LABELS
+from base.agent import DEFAULT_PREFERENCES, root_agent
+from base.constants import STATUS_LABELS
 from base.db import (
     EmailAlreadyExistsError,
     clear_api_key,
@@ -26,6 +27,7 @@ from base.db import (
     update_resume_path,
     update_user_password,
     update_user_profile,
+    update_user_prompt,
     upload_resume,
     verify_user_password,
 )
@@ -49,22 +51,34 @@ div[data-testid="stForm"] {
     padding: 1.4rem 1.6rem 0.8rem;
 }
 div[data-testid="stChatMessage"] {
-    border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 18px;
-    padding: 0.9rem 1.1rem; margin-bottom: 0.7rem;
-    background: rgba(128, 128, 128, 0.06);
+    background: transparent; padding: 0.4rem 0; margin-bottom: 0.4rem;
 }
+/* My messages: right-aligned bubble, like a messaging app. */
 div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-    background: rgba(99, 102, 241, 0.10); border-color: rgba(99, 102, 241, 0.25);
+    flex-direction: row-reverse;
 }
-div[data-testid="stChatInput"] {border-radius: 18px;}
-.chat-title {font-size: 1.4rem; font-weight: 700; margin-bottom: 0.2rem;}
-.chat-sub {opacity: 0.6; margin-bottom: 1rem;}
-.tips {display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin-top: 1.4rem;}
-.tip {border: 1px solid rgba(128,128,128,0.25); border-radius: 14px; padding: 0.6rem 0.9rem; font-size: 0.85rem; max-width: 200px; opacity: 0.85;}
-.hero {padding: 1.2rem 0 1.6rem;}
-.hero h1 {font-size: 2.4rem; margin-bottom: 0.3rem;}
-.hero p {opacity: 0.7; font-size: 1.05rem; margin: 0;}
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] {
+    background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.22);
+    border-radius: 18px 18px 4px 18px; padding: 0.6rem 1rem; margin-left: auto;
+    max-width: 85%; flex: 0 1 auto;
+}
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] p {
+    white-space: pre-wrap;
+}
+[class*="st-key-sent_"] {
+    border: 1px solid rgba(99, 102, 241, 0.35) !important;
+    background: rgba(99, 102, 241, 0.04);
+    box-shadow: 0 6px 24px rgba(30, 30, 80, 0.06);
+}
+.mail-head {display: flex; align-items: center; gap: 0.5rem; font-weight: 600; margin-bottom: 0.2rem;}
+.mail-head .dot {width: 8px; height: 8px; border-radius: 50%; background: #2f9e44;}
+.mail-meta {font-size: 0.85rem; opacity: 0.7; margin-bottom: 0.6rem;}
+.mail-body {white-space: pre-wrap; font-size: 0.93rem; line-height: 1.55;}
 .brand {font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; margin-bottom: 0.9rem;}
+.brand span {
+    background: linear-gradient(135deg, #6a5cff, #ff6aa5);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .user-card {
     border: 1px solid rgba(128, 128, 128, 0.22);
     border-radius: 14px;
@@ -79,10 +93,23 @@ div[data-testid="stChatInput"] {border-radius: 18px;}
 }
 .user-card .meta {min-width: 0; line-height: 1.25;}
 .user-card .meta span {display: block; opacity: 0.65; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis;}
-.empty-chat {text-align: center; padding: 2.5rem 0 1.2rem;}
-.empty-chat .icon {font-size: 2.6rem;}
+.empty-chat {text-align: center; padding: 3rem 0 1.4rem;}
+.empty-chat .icon {
+    width: 64px; height: 64px; margin: 0 auto 0.8rem; border-radius: 18px;
+    background: linear-gradient(135deg, #6a5cff, #ff6aa5); color: #fff;
+    font-size: 2rem; line-height: 64px;
+}
 .empty-chat h2 {margin-bottom: 0.3rem;}
-.empty-chat p {opacity: 0.65; margin: 0;}
+.empty-chat p {opacity: 0.65; margin: 0 auto; max-width: 520px;}
+.steps {display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin: 1.4rem 0 0.4rem;}
+.step {
+    border: 1px solid rgba(128,128,128,0.22); border-radius: 12px; padding: 0.55rem 0.85rem;
+    font-size: 0.85rem; display: flex; gap: 0.45rem; align-items: center;
+}
+.step b {
+    width: 20px; height: 20px; border-radius: 50%; font-size: 0.72rem; line-height: 20px;
+    background: rgba(99, 102, 241, 0.15); color: #6366f1; text-align: center;
+}
 .pill {padding: 2px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600;}
 </style>
 """, unsafe_allow_html=True)
@@ -207,10 +234,13 @@ def show_auth():
 
 # ---------------------------------------------------------------- chat
 
+ASSISTANT_AVATAR = ":material/edit_note:"
+
+
 def reset_chat():
     st.session_state.thread_id = str(uuid.uuid4())
     st.session_state.chat_display = []
-    st.session_state.pending_upload = False
+    st.session_state.pending = None
     st.session_state.resume_cache = None
     st.session_state.uploader_key = 0
 
@@ -219,12 +249,14 @@ def ensure_chat_state():
     if "thread_id" not in st.session_state:
         reset_chat()
     st.session_state.setdefault("uploader_key", 0)
+    st.session_state.setdefault("pending", None)
 
 
 def get_resume(user):
     if st.session_state.resume_cache is None:
-        resume_bytes = download_resume(user["resume_pdf"])
-        st.session_state.resume_cache = (resume_bytes, ResumeText.extract_text(resume_bytes))
+        resume_bytes = download_resume(user["resume_pdf"]) if user.get("resume_pdf") else None
+        resume_text = ResumeText.extract_text(resume_bytes) if resume_bytes else ""
+        st.session_state.resume_cache = (resume_bytes, resume_text)
     return st.session_state.resume_cache
 
 
@@ -232,7 +264,7 @@ def repair_thread(config):
     """Gives every tool call in the history a result, so the model accepts the history again."""
     state = root_agent.get_state(config)
     if any(task.interrupts for task in state.tasks):
-        return  # waiting for the resume upload; that is a valid state
+        return  # waiting for a resume upload; that is a valid state
     messages = state.values.get("messages", [])
     answered = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
     missing = [
@@ -246,30 +278,32 @@ def repair_thread(config):
 
 
 def run_agent(user, agent_input, placeholder=None):
-    """Runs the agent on this chat's thread. Returns (reply, interrupted).
+    """Runs the agent on this chat's thread.
 
-    If a Streamlit placeholder is given, the model's reply is streamed into it token by token.
+    Returns (reply, sent_email, pending): pending is the interrupt payload when the agent
+    paused for a resume upload, else None. If a Streamlit
+    placeholder is given, the model's reply is streamed into it token by token.
     """
     resume_bytes, resume_text = get_resume(user)
     config = {"configurable": {
         "thread_id": st.session_state.thread_id,
         "user_id": user["user_id"],
+        "my_name": user.get("name"),
         "my_email": user["email"],
         "my_password": get_gmail_password(user["user_id"]),
-        "resume_filename": user["resume_pdf"].split("/")[-1],
+        "resume_filename": (user.get("resume_pdf") or "resume.pdf").split("/")[-1],
         "resume_bytes": resume_bytes,
         "resume_text": resume_text,
     }}
 
     if isinstance(agent_input, str):
         repair_thread(config)
-    existing = root_agent.get_state(config).values.get("messages", [])
-    if isinstance(agent_input, str):
         agent_input = {"messages": [{"role": "user", "content": agent_input}]}
+    existing = root_agent.get_state(config).values.get("messages", [])
 
     streamed, current_id = "", None
     for chunk, meta in root_agent.stream(agent_input, config=config, stream_mode="messages"):
-        if placeholder is None or not isinstance(chunk, AIMessageChunk) or meta.get("langgraph_node") != "agent":
+        if placeholder is None or not isinstance(chunk, AIMessageChunk) or meta.get("langgraph_node") != "model":
             continue
         if chunk.id != current_id:  # a new model turn started; drop text from the previous one
             streamed, current_id = "", chunk.id
@@ -279,7 +313,10 @@ def run_agent(user, agent_input, placeholder=None):
 
     state = root_agent.get_state(config)
     new_messages = state.values["messages"][len(existing):]
-    interrupted = any(task.interrupts for task in state.tasks)
+    pending = next(
+        (i.value for task in state.tasks for i in task.interrupts if isinstance(i.value, dict)),
+        None,
+    )
 
     sent = next(
         (m.artifact for m in new_messages
@@ -291,108 +328,146 @@ def run_agent(user, agent_input, placeholder=None):
             user["user_id"], sent["company_name"], sent["role"],
             recruiter_email=", ".join(sent["recipient_emails"]),
         )
-        st.toast(f"Email sent to {', '.join(sent['recipient_emails'])}", icon="✅")
+        st.toast(f"Email sent to {', '.join(sent['recipient_emails'])}", icon=":material/send:")
     if any(isinstance(m, ToolMessage) and m.name == "update_candidate_details" for m in new_messages):
         refresh_user(user["user_id"])
 
-    if interrupted:
+    last_ai = next((m for m in reversed(new_messages) if isinstance(m, AIMessage)), None)
+    text = (last_ai.content if last_ai and isinstance(last_ai.content, str) else "").strip()
+    if pending and pending.get("type") == "resume_upload":
         reply = "Sure, drop your new resume below and I'll switch to it."
     else:
-        reply = state.values["messages"][-1].content
-        if sent:
-            reply += (
-                f"\n\n---\n**To:** {', '.join(sent['recipient_emails'])}  \n"
-                f"**Subject:** {sent['subject']}\n\n{sent['body']}"
-            )
-    return reply, interrupted
+        reply = text or "Done."
+    return reply, sent, pending
+
+
+def after_run(reply, sent, pending):
+    """Records the agent's turn in the chat and shows any card it paused on."""
+    if reply:
+        st.session_state.chat_display.append({"role": "assistant", "content": reply})
+    if sent:
+        st.session_state.chat_display.append({"role": "assistant", "email": sent})
+    st.session_state.pending = pending
+
+
+def error_message(e: Exception) -> str:
+    """A readable chat message for a failed agent run."""
+    status = getattr(e, "status_code", None)
+    if status and status >= 500:
+        return "The AI service is having a hiccup right now. Please send your message again in a moment."
+    if status == 429:
+        return "The AI service is busy (rate limit). Please wait a few seconds and try again."
+    if status in (401, 403):
+        return "The AI service rejected the API key. Check DEEPSEEK_API_KEY in your .env."
+    return f"Something went wrong: {e}"
 
 
 def handle_prompt(user, prompt):
     st.session_state.chat_display.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
-    with st.chat_message("assistant"):
+
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         placeholder = st.empty()
-        placeholder.markdown("_Working on it..._")
+        placeholder.markdown(":gray[_Writing…_]")
         try:
-            reply, interrupted = run_agent(user, prompt, placeholder)
+            reply, sent, pending = run_agent(user, prompt, placeholder)
         except Exception as e:
-            reply, interrupted = f"Something went wrong: {e}", False
+            reply, sent, pending = error_message(e), None, None
         placeholder.markdown(reply)
-    st.session_state.chat_display.append({"role": "assistant", "content": reply})
-    st.session_state.pending_upload = interrupted
-    if interrupted:
-        st.rerun()
+    after_run(reply, sent, pending)
+    st.rerun()
+
+
+def resume_agent(user, answer, spinner_text):
+    """Continues the paused agent with the answer from a card, then redraws the chat."""
+    try:
+        with st.spinner(spinner_text):
+            result = run_agent(user, Command(resume=answer))
+    except Exception as e:
+        result = (error_message(e), None, None)
+    after_run(*result)
+    st.rerun()
 
 
 def resume_upload_prompt(user):
     """Drag-and-drop box shown when the agent pauses to ask for a new resume."""
-    with st.chat_message("assistant"):
-        st.markdown("**Upload your new resume**")
-        file = st.file_uploader(
-            "Drag and drop your new resume (PDF)",
-            type=["pdf"],
-            key=f"chat_resume_{st.session_state.uploader_key}",
-            label_visibility="collapsed",
-        )
-        cancel = st.button("Cancel", key="cancel_resume_upload")
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        with st.container(border=True):
+            st.markdown("**:material/upload_file: Upload your new resume**")
+            file = st.file_uploader(
+                "Drag and drop your new resume (PDF)",
+                type=["pdf"],
+                key=f"chat_resume_{st.session_state.uploader_key}",
+                label_visibility="collapsed",
+            )
+            cancel = st.button("Keep my current resume", key="cancel_resume_upload")
 
     if file is None and not cancel:
         return
 
-    if cancel:
-        answer = {"status": "cancelled"}
-        note = "No problem, your resume stays as it is."
-    else:
-        with st.spinner("Updating your resume..."):
-            file_bytes = file.getvalue()
-            path = upload_resume(user["user_id"], file_bytes, file.name)
-            update_resume_path(user["user_id"], path)
-            refresh_user(user["user_id"])
-            resume_text = ResumeText.extract_text(file_bytes)
-            st.session_state.resume_cache = (file_bytes, resume_text)
-        answer = {"status": "updated", "filename": file.name}
-        note = None
-
-    new_user = st.session_state.user
-    try:
-        with st.spinner("Continuing..."):
-            reply, _ = run_agent(new_user, Command(resume=answer))
-    except Exception as e:
-        reply = f"Something went wrong: {e}"
-    st.session_state.chat_display.append({"role": "assistant", "content": note or reply})
-    st.session_state.pending_upload = False
     st.session_state.uploader_key += 1
-    st.rerun()
+    if cancel:
+        resume_agent(user, {"status": "cancelled"}, "One moment…")
+
+    with st.spinner("Updating your resume…"):
+        file_bytes = file.getvalue()
+        path = upload_resume(user["user_id"], file_bytes, file.name)
+        update_resume_path(user["user_id"], path)
+        refresh_user(user["user_id"])
+        st.session_state.resume_cache = (file_bytes, ResumeText.extract_text(file_bytes))
+    resume_agent(st.session_state.user, {"status": "updated", "filename": file.name}, "Reading your new resume…")
+
+
+def sent_email_card(email, index):
+    with st.container(border=True, key=f"sent_{index}"):
+        where = " at ".join(x for x in (email.get("role"), email.get("company_name")) if x)
+        st.markdown(
+            f'<div class="mail-head"><span class="dot"></span>Sent{" · " + html.escape(where) if where else ""}</div>'
+            f'<div class="mail-meta">To {html.escape(", ".join(email["recipient_emails"]))}'
+            f' · {html.escape(email["subject"])}</div>'
+            f'<div class="mail-body">{html.escape(email["body"])}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def show_chat(user):
     ensure_chat_state()
+    pending = st.session_state.pending
     if not user.get("resume_pdf"):
-        st.warning("No resume on file yet. Ask the assistant to update your resume or add one in Profile → Resume.")
+        st.warning("No resume on file yet. Say “update my resume” or add one in Profile → Resume.",
+                   icon=":material/description:")
 
-    if not st.session_state.chat_display and not st.session_state.pending_upload:
+    if not st.session_state.chat_display and not pending:
+        first = (user.get("name") or "").strip().split(" ")[0].capitalize()
         st.markdown(
-            '<div class="empty-chat"><div class="icon">✉️</div><h2>Who are we applying to today?</h2>'
-            "<p>Paste a job description and I'll write the email and send it to the recruiter.</p>"
-            '<div class="tips">'
-            '<div class="tip">📄 Paste a job description</div>'
-            '<div class="tip">✍️ I write a personal email</div>'
-            '<div class="tip">🚀 I send it from your Gmail</div></div></div>',
+            f'<div class="empty-chat"><div class="icon">✉</div>'
+            f'<h2>Hi{" " + html.escape(first) if first else ""}, where are we applying today?</h2>'
+            "<p>Paste a job description. I'll write the email the way you would "
+            "and send it from your Gmail with your resume attached.</p>"
+            '<div class="steps">'
+            '<div class="step"><b>1</b>Paste the job post</div>'
+            '<div class="step"><b>2</b>I write it as you</div>'
+            '<div class="step"><b>3</b>Sent to the recruiter</div></div></div>',
             unsafe_allow_html=True,
         )
 
-    for msg in st.session_state.chat_display:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    for i, msg in enumerate(st.session_state.chat_display):
+        if msg["role"] == "assistant":
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                if "email" in msg:
+                    sent_email_card(msg["email"], i)
+                else:
+                    st.markdown(msg["content"])
+        else:
+            with st.chat_message("user"):
+                st.markdown(msg["content"])
 
-    if st.session_state.pending_upload:
+    if pending and pending.get("type") == "resume_upload":
         resume_upload_prompt(user)
 
-    prompt = st.chat_input(
-        "Paste a job description, or ask me anything…",
-        disabled=st.session_state.pending_upload,
-    )
+    waiting_for_upload = bool(pending and pending.get("type") == "resume_upload")
+    prompt = st.chat_input("Paste a job description, or ask me anything…", disabled=waiting_for_upload)
     if prompt:
         if not user.get("resume_pdf") and "resume" not in prompt.lower():
             st.error("Add a resume first. Say “update my resume” to upload one.")
@@ -401,12 +476,6 @@ def show_chat(user):
 
 
 # ---------------------------------------------------------------- applications
-
-def status_pill(status: int) -> str:
-    color = STATUS_COLORS.get(status, "#868e96")
-    label = STATUS_LABELS.get(status, "Unknown")
-    return f'<span class="pill" style="background:{color}22;color:{color};">{label}</span>'
-
 
 def show_applications(user):
     st.header("Applications")
@@ -440,7 +509,9 @@ def show_applications(user):
         with st.container(border=True):
             top_left, top_right = st.columns([4, 1])
             top_left.markdown(f"**{a['company_name']}** · {a['role']}")
-            top_right.markdown(status_pill(a["status"]), unsafe_allow_html=True)
+            with top_right:
+                st.badge(STATUS_LABELS.get(a["status"], "Unknown"),
+                         color="green" if a["status"] == 1 else "orange")
             st.caption(f"{a['date_of_application']} · Recruiter: {a.get('recruiter_email') or '—'}")
 
             col4, col5 = st.columns([4, 1])
@@ -575,11 +646,36 @@ def show_resume_tab(user):
             st.error("Choose a PDF file first.")
 
 
+def show_preferences_tab(user):
+    st.caption("Your preferences and any extra info about you that isn't in your resume. "
+               "The assistant uses this only when writing applications. Leave empty to use the defaults.")
+    with st.expander("See the defaults"):
+        st.code(DEFAULT_PREFERENCES, language=None, wrap_lines=True)
+    with st.form("preferences_form"):
+        user_prompt = st.text_area(
+            "Preferences and extra info", value=user.get("user_prompt") or "", height=220, max_chars=4000,
+            placeholder="e.g. I'm available to join immediately. Open to remote or Hyderabad only. "
+                        "I hold an AWS Solutions Architect certification. Keep emails under 80 words "
+                        "and end with 'Thanks,' instead of 'Best regards,'.",
+        )
+        col1, col2 = st.columns([1, 1])
+        saved = col1.form_submit_button("Save preferences", type="primary")
+        reset = col2.form_submit_button("Reset to default")
+    if saved or reset:
+        with st.spinner("Saving..."):
+            update_user_prompt(user["user_id"], None if reset else (user_prompt.strip() or None))
+            refresh_user(user["user_id"])
+        st.toast("Preferences saved" if saved else "Reset to defaults", icon="✅")
+        st.rerun()
+
+
 def show_profile(user):
     st.header("Profile")
-    details_tab, resume_tab, security_tab = st.tabs(["Details", "Resume", "Security"])
+    details_tab, preferences_tab, resume_tab, security_tab = st.tabs(["Details", "Preferences", "Resume", "Security"])
     with details_tab:
         show_details_tab(user)
+    with preferences_tab:
+        show_preferences_tab(user)
     with resume_tab:
         show_resume_tab(user)
     with security_tab:
@@ -599,7 +695,7 @@ display_name = user.get("name") or user["email"]
 st.session_state.setdefault("page", "chat")
 
 with st.sidebar:
-    st.markdown('<div class="brand">✉️ ApplyBuddy</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand">✉️ <span>ApplyBuddy</span></div>', unsafe_allow_html=True)
     st.markdown(
         f"""
         <div class="user-card">
@@ -609,17 +705,19 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
-    for key, label in (("chat", "💬 Chat"), ("applications", "📋 Applications"), ("profile", "👤 Profile")):
-        if st.button(label, key=f"nav_{key}", width="stretch",
-                     type="primary" if st.session_state.page == key else "secondary"):
-            st.session_state.page = key
-            st.rerun()
-    if st.button("➕ New chat", key="nav_new_chat", width="stretch"):
+    if st.button("New application", key="nav_new_chat", icon=":material/add:", type="primary", width="stretch"):
         reset_chat()
         st.session_state.page = "chat"
         st.rerun()
-    st.divider()
-    if st.button("Log out", key="nav_logout", width="stretch"):
+    for key, label, icon in (("chat", "Chat", ":material/chat:"),
+                             ("applications", "Applications", ":material/work_history:"),
+                             ("profile", "Profile", ":material/person:")):
+        if st.button(label, key=f"nav_{key}", icon=icon, width="stretch",
+                     type="tertiary" if st.session_state.page != key else "secondary"):
+            st.session_state.page = key
+            st.rerun()
+    st.space("medium")
+    if st.button("Log out", key="nav_logout", icon=":material/logout:", type="tertiary", width="stretch"):
         clear_api_key(user["user_id"])
         st.session_state.clear()
         st.query_params.clear()
