@@ -231,7 +231,6 @@ Default writing guidelines (my preferences can override these):
 - Email format:
   Hi <recruiter's first name>, (or just "Hi," if unknown)
 
-  <the role I'm applying for>
   <why I fit>
 
   Best regards,
