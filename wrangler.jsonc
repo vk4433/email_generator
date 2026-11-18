@@ -1,0 +1,23 @@
+{
+    "name": "email-generator-mcp",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-11-18",
+    "containers": [
+          {
+                  "class_name": "McpServerContainer",
+                  "image": "./Dockerfile",
+                  "max_instances": 1
+          }
+    ],
+    "durable_objects": {
+          "bindings": [
+                  { "name": "MCP_SERVER", "class_name": "McpServerContainer" }
+          ]
+    },
+    "migrations": [
+          { "tag": "v1", "new_sqlite_classes": ["McpServerContainer"] }
+    ],
+    "vars": {
+          "SUPABASE_URL": "https://bmhvzsmajwftubgwqaty.supabase.co"
+    }
+}
